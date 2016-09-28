@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+#
+# Usage: minecraftctl COMMAND SERVER [ARG]
+#
+
+COMMAND=$1
+MINE_SERVER="$2"
+MINE_SERVER_SCREEN="${MINE_SERVER}-MCC"
+BASE_DIR="$MCCTL_BASE_DIR"
+JARS_DIR="$BASE_DIR/jars"
+BACKUPS_DIR="$BASE_DIR/backups"
+BACKUP_DIR="$BACKUPS_DIR/$MINE_SERVER"
+SERVERS_DIR="$BASE_DIR/servers"
+SERVER_DIR="$SERVERS_DIR/$MINE_SERVER"
+
+send_to_server() {
+    screen -S "$MINE_SERVER_SCREEN" -p 0 -X stuff ""$1" $(printf '\r')"
+}
+
+backup_server() {
+    BACKUP_TYPE=$1
+    WORLD_DIR=$SERVER_DIR/world
+    NOW=$(date "+%Y-%m-%d")
+
+    if [ ! -d $BACKUP_DIR ]; then
+        mkdir -p $BACKUP_DIR
+        mkdir -p $BACKUP_DIR/hourly
+        mkdir -p $BACKUP_DIR/daily
+    fi
+
+    if [ "$BACKUP_TYPE" == "hourly" ]; then
+        send_to_server "say $BACKUP_TYPE backup starting. World no longer saving..."
+        world_save_off
+        cd $BACKUP_DIR/hourly
+        rm -f minecraft-hour24.tar.gz
+        mv minecraft-hour23.tar.gz minecraft-hour24.tar.gz
+        mv minecraft-hour22.tar.gz minecraft-hour23.tar.gz
+        mv minecraft-hour21.tar.gz minecraft-hour22.tar.gz
+        mv minecraft-hour20.tar.gz minecraft-hour21.tar.gz
+        mv minecraft-hour19.tar.gz minecraft-hour20.tar.gz
+        mv minecraft-hour18.tar.gz minecraft-hour19.tar.gz
+        mv minecraft-hour17.tar.gz minecraft-hour18.tar.gz
+        mv minecraft-hour16.tar.gz minecraft-hour17.tar.gz
+        mv minecraft-hour15.tar.gz minecraft-hour16.tar.gz
+        mv minecraft-hour14.tar.gz minecraft-hour15.tar.gz
+        mv minecraft-hour13.tar.gz minecraft-hour14.tar.gz
+        mv minecraft-hour12.tar.gz minecraft-hour13.tar.gz
+        mv minecraft-hour11.tar.gz minecraft-hour12.tar.gz
+        mv minecraft-hour10.tar.gz minecraft-hour11.tar.gz
+        mv minecraft-hour9.tar.gz minecraft-hour10.tar.gz
+        mv minecraft-hour8.tar.gz minecraft-hour9.tar.gz
+        mv minecraft-hour7.tar.gz minecraft-hour8.tar.gz
+        mv minecraft-hour6.tar.gz minecraft-hour7.tar.gz
+        mv minecraft-hour5.tar.gz minecraft-hour6.tar.gz
+        mv minecraft-hour4.tar.gz minecraft-hour5.tar.gz
+        mv minecraft-hour3.tar.gz minecraft-hour4.tar.gz
+        mv minecraft-hour2.tar.gz minecraft-hour3.tar.gz
+        mv minecraft-hour1.tar.gz minecraft-hour2.tar.gz
+        mv minecraft-hour0.tar.gz minecraft-hour1.tar.gz
+
+        cd $WORLD_DIR
+        tar -cpvzf $BACKUP_DIR/hourly/minecraft-hour0.tar.gz *
+        world_save_on
+        send_to_server "say $BACKUP_TYPE backup complete. World now saving."
+        echo "Backed up world at $(date "+%F %H:%M:%S")"
+    elif [ "$BACKUP_TYPE" == "daily" ]; then
+        send_to_server "say $BACKUP_TYPE backup starting. World no longer saving..."
+        world_save_off
+        cd $WORLD_DIR
+        tar -cpvzf $BACKUP_DIR/daily/minecraft-${NOW}.tgz *
+        world_save_on
+        send_to_server "say $BACKUP_TYPE backup complete. World now saving."
+        cd $BACKUP_DIR/daily
+        # Delete backups older than 2 weeks
+        find . -mtime +14 -exec rm {} \;
+        echo "Backed up world at $(date "+%F %H:%M:%S")"
+    else
+        echo "No backup made. $BACKUP_TYPE not valid backup type"
+    fi
+}
+
+world_save_off() {
+        send_to_server "save-off"
+        send_to_server "save-all"
+        sleep 3
+}
+
+world_save_on() {
+        send_to_server "save-on"
+}
+
+create_new_server() {
+    FORCE_NEW=false
+
+    if [ "$2" == "yes" ]; then
+        FORCE_NEW=true
+    fi
+
+    if [ "$FORCE_NEW" = true ]; then
+        rm -rf $SERVER_DIR
+        if [ $? -ne 0 ]; then
+            echo "Error deleting old server directory"
+        fi
+    fi
+
+    if [ -d $SERVER_DIR ]; then
+        echo "Server already exists"
+        exit 1
+    fi
+
+    echo "Creating server directory..."
+    mkdir -p $SERVER_DIR
+    if [ $? -ne 0 ]; then
+        echo "Error creating server directory"
+    fi
+
+    echo "Choose a server version:"
+    VERSIONS=()
+    I=0
+    for f in "$JARS_DIR"/*; do
+        f="$(basename $f)"
+        VERSIONS[$I]="$f"
+        echo -e "\t${I}: $f"
+        let I+=1
+    done
+
+    read CHOICE
+
+    echo "Linking server file ${VERSIONS[$CHOICE]}..."
+    CURRENT_DIR=`pwd`
+    cd $SERVER_DIR
+    ln -s "$JARS_DIR/${VERSIONS["$CHOICE"]}" minecraft_server.jar
+    cd $CURRENT_DIR
+
+    echo "Populating base server files..."
+    echo "[]" > $SERVER_DIR/banned-ips.json
+    echo "[]" > $SERVER_DIR/banned-players.json
+    echo "[]" > $SERVER_DIR/ops.json
+    echo "[]" > $SERVER_DIR/whitelist.json
+
+    echo "Accepting EULA..."
+    echo "eula=true" > $SERVER_DIR/eula.txt
+
+    echo -n "Port number: "
+    read PORT
+    echo "server-port=$PORT" > $SERVER_DIR/server.properties
+
+    echo
+    echo "Minecraft server '$MINE_SERVER' created!"
+    echo "To start the server, run:"
+    echo "  $0 start $MINE_SERVER"
+    echo
+}
+
+start_server() {
+    # Check if server may already be running
+    if [ -n "$(screen -ls 2>/dev/null | grep $MINE_SERVER)" ]; then
+        echo "It looks like the server is already running"
+        return
+    fi
+
+    # Start server
+    echo "Starting server..."
+    screen -S $MINE_SERVER_SCREEN -dm bash -c "$BASE_DIR/bin/screen_server_start.sh '$SERVER_DIR'"
+    sleep 10
+
+    # Check if it started successfully
+    STARTED="$(tail -1 "$SERVER_DIR/logs/latest.log" | grep "Done")"
+    if [ -n "$STARTED" ]; then
+        echo "Server started"
+        return
+    fi
+
+    if [ -n "$(tail "$SERVER_DIR"/logs/latest.log | grep "FAILED TO BIND TO PORT!")" ]; then
+        echo "ERROR: Server Port in use"
+    else
+        echo "ERROR: Unknown start error, check logs"
+    fi
+    return 1
+}
+
+stop_server() {
+    # Check if it's running now
+    if [ -z "$(screen -ls | grep $MINE_SERVER)" ]; then
+        echo "Server not running"
+        return
+    fi
+
+    # First try to stop server
+    echo "Stopping server..."
+    send_to_server "stop"
+    sleep 10 # Give server time to stop
+
+    # If the server didn't stop in time, force close the screen session
+    if [ -z "$(screen -ls | grep $MINE_SERVER)" ]; then
+        echo "Server stopped"
+        return
+    fi
+
+    echo "Force killing screen session"
+    screen -S $MINE_SERVER_SCREEN -p 0 -X quit
+
+    # If it still failed, echo a message
+    if [ -n "$(screen -ls | grep $MINE_SERVER)" ]; then
+        echo "Force killing didn't work"
+    fi
+    return 1
+}
+
+restart_server() {
+    stop_server
+    if [ $? -ne 0 ]; then
+        echo "Error stopping server"
+        return 1
+    fi
+
+    start_server
+    if [ $? -ne 0 ]; then
+        echo "Error starting server"
+        return 1
+    fi
+}
+
+check_server_exists() {
+    if [ ! -d "$SERVER_DIR" ]; then
+        echo "Server doesn't exist"
+        exit 1
+    fi
+}
+
+if [ -z "$BASE_DIR" ]; then
+    BASE_DIR=/srv/minecraft
+fi
+
+if [ -z "$MINE_SERVER" ]; then
+    echo "Server name required"
+    exit 1
+fi
+
+EXIT_CODE=0
+case $COMMAND in
+    create)
+        create_new_server $3
+        EXIT_CODE=$?
+        ;;
+    backup)
+        check_server_exists
+        backup_server $3
+        EXIT_CODE=$?
+        ;;
+    restart)
+        check_server_exists
+        restart_server
+        EXIT_CODE=$?
+        ;;
+    start)
+        check_server_exists
+        start_server
+        EXIT_CODE=$?
+        ;;
+    stop)
+        check_server_exists
+        stop_server
+        EXIT_CODE=$?
+        ;;
+    send)
+        check_server_exists
+        send_to_server "$3"
+        EXIT_CODE=$?
+        ;;
+    *)
+        echo "Usage: $0 [backup|create|restart|start|stop|send] server args..."
+        EXIT_CODE=1
+esac
+
+exit $EXIT_CODE
