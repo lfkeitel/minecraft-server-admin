@@ -17,7 +17,7 @@ SERVERS_DIR="$BASE_DIR/servers"
 SERVER_DIR="$SERVERS_DIR/$MINE_SERVER"
 
 send_to_server() {
-    screen -S "$MINE_SERVER_SCREEN" -p 0 -X stuff ""$1" $(printf '\r')"
+    screen -S $MINE_SERVER_SCREEN -p 0 -X stuff "$1 $(printf '\r')"
 }
 
 backup_server() {
@@ -206,8 +206,8 @@ stop_server() {
     # If it still failed, echo a message
     if [ -n "$(screen -ls | grep $MINE_SERVER)" ]; then
         echo "Force killing didn't work"
+        return 1
     fi
-    return 1
 }
 
 restart_server() {
