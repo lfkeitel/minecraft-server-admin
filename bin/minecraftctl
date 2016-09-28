@@ -7,6 +7,9 @@ COMMAND=$1
 MINE_SERVER="$2"
 MINE_SERVER_SCREEN="${MINE_SERVER}-MCC"
 BASE_DIR="$MCCTL_BASE_DIR"
+if [ -z "$BASE_DIR" ]; then
+    BASE_DIR=/srv/minecraft
+fi
 JARS_DIR="$BASE_DIR/jars"
 BACKUPS_DIR="$BASE_DIR/backups"
 BACKUP_DIR="$BACKUPS_DIR/$MINE_SERVER"
@@ -227,10 +230,6 @@ check_server_exists() {
         exit 1
     fi
 }
-
-if [ -z "$BASE_DIR" ]; then
-    BASE_DIR=/srv/minecraft
-fi
 
 if [ -z "$MINE_SERVER" ]; then
     echo "Server name required"
