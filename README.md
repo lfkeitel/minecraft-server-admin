@@ -45,3 +45,4 @@ $ ./bin/minecraftctl start ServerName
 - [ ] Add a `delete` command.
 - [ ] Add a `download` command to get a Minecraft server version.
 - [ ] Clean up the `backup_server` function.
+- [ ] Add an `init` command to setup the directory structure.
